@@ -1,0 +1,67 @@
+version: "3.6"
+
+services:
+  agent:
+    image: portainer/agent
+    environment:
+      # REQUIRED AGENT_CLUSTER_ADDR,
+      # Should be equal to the service name prefixed by "tasks." when
+      # deployed inside an overlay network
+      AGENT_CLUSTER_ADDR: tasks.agent
+      # AGENT_PORT: 9001
+      # LOG_LEVEL: debug
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks:
+      - agent_network
+    deploy:
+      mode: global
+      placement:
+        constraints: [node.platform.os == linux]
+
+  portainer:
+    image: ricmathie/ecr_portainer:1.19.2
+    command: --admin-password-file '/run/secrets/portainer_password' -H tcp://tasks.agent:9001 --tlsskipverify
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+      - portainer_ecr_data:/.ecr
+    networks:
+      - agent_network
+    environment:
+      AWS_REGION: eu-west-1 # Need Region for ECR
+    secrets:
+      - portainer_password
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+networks:
+  agent_network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  portainer_data:
+    name: "{{.Service.Name}}-{{.Task.Slot}}-vol"
+    driver: "cloudstor:aws"
+    driver_opts:
+      ebstype: gp2
+      size: 20
+      backing: relocatable
+  portainer_ecr_data:
+    name: "{{.Service.Name}}-{{.Task.Slot}}-vol-ecr"
+    driver: "cloudstor:aws"
+    driver_opts:
+      ebstype: gp2
+      size: 20
+      backing: relocatable
+
+secrets:
+  portainer_password:
+    external: true
